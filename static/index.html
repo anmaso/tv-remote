@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111317">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>TV Remote</title>
+<style>
+  :root {
+    --bg: #111317; --panel: #1b1e24; --btn: #262a32; --btn-press: #353a45;
+    --text: #e9ecf1; --muted: #8b93a1; --accent: #4f8cff; --danger: #e5484d;
+    --ok: #30a46c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { max-width: 440px; margin: 0 auto; padding: 16px 16px 40px; user-select: none; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--danger); }
+  section { background: var(--panel); border-radius: 18px; padding: 14px; margin-bottom: 14px; }
+  button { font: inherit; color: var(--text); background: var(--btn); border: 0; border-radius: 14px;
+    min-height: 52px; padding: 0 12px; cursor: pointer; touch-action: manipulation; }
+  button:active, button.pressed { background: var(--btn-press); transform: scale(0.97); }
+  button.primary { background: var(--accent); color: #fff; }
+  button.power { background: var(--danger); color: #fff; }
+  button svg { width: 24px; height: 24px; vertical-align: middle; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .row { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+  .row + .row { margin-top: 10px; }
+  .row.four { grid-template-columns: repeat(4, 1fr); }
+  .dpad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 72px);
+    gap: 8px; max-width: 280px; margin: 0 auto; }
+  .dpad button { min-height: 0; }
+  .dpad .ok { border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; }
+  .rocker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .rocker > div { display: grid; gap: 6px; text-align: center; }
+  .rocker small { color: var(--muted); font-size: 12px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 12px 0 2px; }
+  .vol-label { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; }
+  .colors button { min-height: 32px; }
+  .red { background: #c8373c !important; } .green { background: #2f8a4f !important; }
+  .yellow { background: #c9a227 !important; } .blue { background: #2f62c9 !important; }
+  .apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; max-height: 320px; overflow-y: auto; }
+  .apps button { font-size: 14px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 4px 0; list-style: none; }
+  details[open] summary { margin-bottom: 10px; }
+  .pair { text-align: center; }
+  .pair p { color: var(--muted); }
+  .pair input { font: 600 32px/1 ui-monospace, monospace; letter-spacing: 8px; text-align: center; width: 100%;
+    background: var(--btn); color: var(--text); border: 0; border-radius: 14px; padding: 14px; margin: 12px 0; }
+  .pair button { width: 100%; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #2b2f38;
+    color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: 90vw;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">TV Remote</h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="status-text">Connecting…</span></div>
+</header>
+
+<!-- Pairing: shown until the TV has granted us a key -->
+<section id="pair" class="pair hidden">
+  <h2>Pair with your TV</h2>
+  <p id="pair-help">The TV must be on. Tap the button, then type the PIN the TV shows.</p>
+  <button id="pair-start" class="primary">Show PIN on TV</button>
+  <div id="pair-step2" class="hidden">
+    <input id="pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="····">
+    <button id="pair-finish" class="primary">Pair</button>
+  </div>
+</section>
+
+<div id="remote" class="hidden">
+  <section>
+    <div class="row">
+      <button class="power" id="power" aria-label="Power">
+        <svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+      </button>
+      <button data-key="Source">Source</button>
+      <button id="ambi">Ambilight</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="dpad">
+      <span></span>
+      <button data-key="CursorUp" data-repeat aria-label="Up"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg></button>
+      <span></span>
+      <button data-key="CursorLeft" data-repeat aria-label="Left"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+      <button data-key="Confirm" class="ok">OK</button>
+      <button data-key="CursorRight" data-repeat aria-label="Right"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+      <span></span>
+      <button data-key="CursorDown" data-repeat aria-label="Down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <span></span>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button data-key="Back">Back</button>
+      <button data-key="Home">Home</button>
+      <button data-key="Options">Options</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="rocker">
+      <div>
+        <small>Volume</small>
+        <button data-key="VolumeUp" data-repeat aria-label="Volume up">+</button>
+        <button data-key="VolumeDown" data-repeat aria-label="Volume down">−</button>
+      </div>
+      <div>
+        <small>Channel</small>
+        <button data-key="ChannelStepUp" aria-label="Channel up"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg></button>
+        <button data-key="ChannelStepDown" aria-label="Channel down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      </div>
+    </div>
+    <input type="range" id="vol" min="0" max="60" step="1">
+    <div class="vol-label"><span id="vol-text">Volume</span><button data-key="Mute" style="min-height:32px">Mute</button></div>
+  </section>
+
+  <section>
+    <div class="row four">
+      <button data-key="Rewind" aria-label="Rewind"><svg viewBox="0 0 24 24"><path d="M11 18 4 12l7-6v12Z"/><path d="M20 18l-7-6 7-6v12Z"/></svg></button>
+      <button data-key="PlayPause" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path d="M6 5v14l8-7Z"/><path d="M17 5v14"/><path d="M21 5v14"/></svg></button>
+      <button data-key="Stop" aria-label="Stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+      <button data-key="FastForward" aria-label="Fast forward"><svg viewBox="0 0 24 24"><path d="m13 18 7-6-7-6v12Z"/><path d="m4 18 7-6-7-6v12Z"/></svg></button>
+    </div>
+    <div class="row four colors" style="margin-top:10px">
+      <button data-key="RedColour" class="red" aria-label="Red"></button>
+      <button data-key="GreenColour" class="green" aria-label="Green"></button>
+      <button data-key="YellowColour" class="yellow" aria-label="Yellow"></button>
+      <button data-key="BlueColour" class="blue" aria-label="Blue"></button>
+    </div>
+  </section>
+
+  <section>
+    <details id="numpad">
+      <summary>Number pad</summary>
+      <div class="row"><button data-key="Digit1">1</button><button data-key="Digit2">2</button><button data-key="Digit3">3</button></div>
+      <div class="row"><button data-key="Digit4">4</button><button data-key="Digit5">5</button><button data-key="Digit6">6</button></div>
+      <div class="row"><button data-key="Digit7">7</button><button data-key="Digit8">8</button><button data-key="Digit9">9</button></div>
+      <div class="row"><button data-key="Info">Info</button><button data-key="Digit0">0</button><button data-key="Subtitle">Subs</button></div>
+    </details>
+  </section>
+
+  <section>
+    <details id="apps-box">
+      <summary>Apps</summary>
+      <div id="apps" class="apps"></div>
+    </details>
+  </section>
+
+  <section>
+    <details>
+      <summary>Settings</summary>
+      <button id="repair" style="width:100%">Pair again</button>
+    </details>
+  </section>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = {};
+let ambilightOn = true;
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  };
+  const res = await fetch("/api/" + path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function buzz() { if (navigator.vibrate) navigator.vibrate(15); }
+
+async function sendKey(key) {
+  buzz();
+  try { await api("key", { key }); } catch (e) { toast(e.message); }
+}
+
+// Buttons with data-repeat keep sending while held (for volume and arrows).
+document.querySelectorAll("[data-key]").forEach((btn) => {
+  const key = btn.dataset.key;
+  let timer = null, repeat = null;
+  const stop = () => { clearTimeout(timer); clearInterval(repeat); btn.classList.remove("pressed"); };
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    btn.classList.add("pressed");
+    sendKey(key);
+    if (btn.hasAttribute("data-repeat")) {
+      timer = setTimeout(() => { repeat = setInterval(() => sendKey(key), 180); }, 450);
+    }
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => btn.addEventListener(ev, stop));
+});
+
+$("power").addEventListener("click", async () => {
+  buzz();
+  const isOn = state.power && state.power.powerstate === "On";
+  if (!state.online) {
+    // TV is in deep standby and off the network: wake it over Wi-Fi.
+    try { await api("wake", {}); toast("Waking the TV…"); setTimeout(refresh, 6000); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  try {
+    // "Standby" key is the most reliable toggle; it also wakes the TV from light standby.
+    await api("key", { key: "Standby" });
+    toast(isOn ? "Turning off" : "Turning on");
+    setTimeout(refresh, 2500);
+  } catch (e) { toast(e.message); }
+});
+
+$("ambi").addEventListener("click", async () => {
+  buzz();
+  ambilightOn = !ambilightOn;
+  try { await api("ambilight", { on: ambilightOn }); toast("Ambilight " + (ambilightOn ? "on" : "off")); }
+  catch (e) { toast(e.message); }
+});
+
+let volTimer = null;
+$("vol").addEventListener("input", (e) => {
+  $("vol-text").textContent = "Volume " + e.target.value;
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => api("volume", { level: +e.target.value }).catch((err) => toast(err.message)), 150);
+});
+
+$("apps-box").addEventListener("toggle", async (e) => {
+  if (!e.target.open || $("apps").childElementCount) return;
+  $("apps").textContent = "Loading…";
+  try {
+    const { apps } = await api("apps");
+    $("apps").textContent = "";
+    apps.forEach((app) => {
+      const b = document.createElement("button");
+      b.textContent = app.label;
+      b.addEventListener("click", () => {
+        buzz();
+        api("launch", { intent: app.intent }).then(() => toast("Opening " + app.label)).catch((err) => toast(err.message));
+      });
+      $("apps").appendChild(b);
+    });
+  } catch (err) { $("apps").textContent = err.message; }
+});
+
+$("pair-start").addEventListener("click", async () => {
+  try {
+    await api("pair/start", {});
+    $("pair-step2").classList.remove("hidden");
+    $("pair-help").textContent = "Type the 4-digit PIN shown on the TV.";
+    $("pin").focus();
+  } catch (e) { toast(e.message); }
+});
+
+$("pair-finish").addEventListener("click", async () => {
+  try {
+    await api("pair/finish", { pin: $("pin").value });
+    toast("Paired");
+    refresh();
+  } catch (e) { toast(e.message); }
+});
+
+$("repair").addEventListener("click", () => {
+  $("remote").classList.add("hidden");
+  $("pair").classList.remove("hidden");
+});
+
+async function refresh() {
+  try {
+    state = await api("status");
+  } catch (e) {
+    $("status-text").textContent = "Server offline";
+    $("dot").className = "dot off";
+    return;
+  }
+  if (state.system) $("title").textContent = state.system.replace("/12", "");
+  const on = state.power && state.power.powerstate === "On";
+  $("dot").className = "dot " + (state.online && on ? "on" : "off");
+  $("status-text").textContent = !state.online ? "TV unreachable" : on ? "On" : state.paired ? "Standby" : "Not paired";
+
+  // Keep the remote visible when the TV is off, so the power button can wake it.
+  const showPair = !state.paired && state.online;
+  $("pair").classList.toggle("hidden", !showPair);
+  $("remote").classList.toggle("hidden", showPair);
+
+  const v = state.volume;
+  if (v && typeof v.current === "number") {
+    $("vol").min = v.min ?? 0; $("vol").max = v.max ?? 60;
+    if (document.activeElement !== $("vol")) $("vol").value = v.current;
+    $("vol-text").textContent = "Volume " + v.current + (v.muted ? " (muted)" : "");
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
